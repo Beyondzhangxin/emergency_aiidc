@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<b:beans xmlns:b="http://www.springframework.org/schema/beans"
+	xmlns="http://www.springframework.org/schema/security"
+	xmlns:p="http://www.springframework.org/schema/p"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:util="http://www.springframework.org/schema/util"
+	xsi:schemaLocation="http://www.springframework.org/schema/security http://www.springframework.org/schema/security/spring-security.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
+		http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util-3.0.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-3.0.xsd">
+
+	<b:bean id="accessDeniedHandler" class="com.aiidc.base.security.AiidcAccessDeniedHandler">
+ 		<b:property name="errorPage" value="/public/error.do"/>
+ 	</b:bean>
+ 	<b:bean id="webSecurity" class="com.aiidc.base.security.WebSecurity">
+ 		<b:property name="sql" value="select 1023 from dual"/>
+ 		<b:property name="dataSource" ref="dataSource"/>
+ 	</b:bean>
+ 	
+	<http entry-point-ref="casEntryPoint" use-expressions="true">
+		<csrf disabled="true"/>
+
+		  	 <!--  以下配置解决网页中嵌入ifram 无法提取ifram中内容的问题：
+     	 	Refused to display 'http://localhost:8080/xxx' in a frame because it set 'X-Frame-Options' to 'DENY'.
+     	   这个问题引起的原因是Spring Security4默认是将'X-Frame-Options' 设置为 'DENY'
+     	   而现代浏览器都对跨域访问进行了严格控制，主要有以下三种控制设置：
+     	   DENY：浏览器拒绝当前页面加载任何Frame页面
+			SAMEORIGIN：frame页面的地址只能为同源域名下的页面
+			ALLOW-FROM：允许frame加载的页面地址
+     	   -->
+		 <headers>
+		            <frame-options policy="SAMEORIGIN" />
+		</headers>
+
+		<intercept-url pattern="/{func}/{action}.do"
+    		access="@webSecurity.checkAccess(authentication,#func,#action)"
+    		/>
+		<custom-filter ref="requestSingleLogoutFilter" before="LOGOUT_FILTER"/>
+		<custom-filter ref="singleLogoutFilter" before="CAS_FILTER"/>
+		<custom-filter ref="casFilter" position="CAS_FILTER" />
+		
+		<logout logout-success-url="/cas-logout.jsp"/>
+		<access-denied-handler ref="accessDeniedHandler"/>
+	</http>
+
+	<authentication-manager alias="authManager">
+		<authentication-provider ref="casAuthProvider" />
+	</authentication-manager>
+
+	<user-service id="userService">
+		<user name="wangzhiguo" password="rod" authorities="ROLE_SUPERVISOR,ROLE_USER" />
+		<user name="dianne" password="dianne" authorities="ROLE_USER" />
+		<user name="scott" password="scott" authorities="ROLE_USER" />
+		<user name="zhangx" password="zhangx" authorities="ROLE_USER"/>
+		<user name="tanyd" password="tanyd" authorities="ROLE_SUPERVISOR,ROLE_USER" />
+		<user name="xiejy" password="xiejy" authorities="ROLE_USER" />
+		<user name="gukr" password="gukr" authorities="ROLE_USER" />
+	</user-service>
+	<!-- <jdbc-user-service data-source-ref="dataSource" id="userService"
+		users-by-username-query="select username,role_id,1  from user_roles where username=?"
+		authorities-by-username-query="select username,role_id authority from user_roles where username=?"
+	/> -->
+	<!-- <b:bean id="userService"    
+		class="org.springframework.security.cas.userdetails.GrantedAuthorityFromAssertionAttributesUserDetailsService">    
+		 <b:constructor-arg>    
+		   <b:array>    
+		     <b:value>role</b:value>    
+		   </b:array>    
+		 </b:constructor-arg>    
+	</b:bean>   -->
+
+	<!-- This filter handles a Single Logout Request from the CAS Server -->
+	<b:bean id="singleLogoutFilter" class="org.jasig.cas.client.session.SingleSignOutFilter"/>
+	<!-- This filter redirects to the CAS Server to signal Single Logout should be performed -->
+	<b:bean id="requestSingleLogoutFilter" class="org.springframework.security.web.authentication.logout.LogoutFilter"
+		p:filterProcessesUrl="/logout/cas">
+		<b:constructor-arg value="https://cdrjsyb.aiidc.com.cn:8443/cas/logout"/>
+		<b:constructor-arg>
+			<b:bean class="org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler"/>
+		</b:constructor-arg>
+	</b:bean>
+
+	<b:bean id="serviceProperties"
+		class="org.springframework.security.cas.ServiceProperties"
+		p:service="http://localhost:8080/em/login/cas"
+		p:authenticateAllArtifacts="true"/>
+	<b:bean id="casEntryPoint"
+		class="org.springframework.security.cas.web.CasAuthenticationEntryPoint"
+		p:serviceProperties-ref="serviceProperties" p:loginUrl="https://cdrjsyb.aiidc.com.cn:8443/cas/login" />
+	<b:bean id="casFilter"
+		class="org.springframework.security.cas.web.CasAuthenticationFilter"
+		p:authenticationManager-ref="authManager"
+		p:serviceProperties-ref="serviceProperties">
+		<b:property name="authenticationDetailsSource">
+			<b:bean class="org.springframework.security.cas.web.authentication.ServiceAuthenticationDetailsSource">
+				<b:constructor-arg ref="serviceProperties"/>
+			</b:bean>
+		</b:property>
+		<b:property name="authenticationFailureHandler">
+			<!-- <b:bean class="org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler"
+				p:defaultFailureUrl="/casfailed.jsp"/> -->
+				<b:bean id="authnFailHandler" class="com.aiidc.base.security.AiidcAuthnFailHandler">
+			 		<b:property name="errorPage" value="/index.jsp"></b:property>
+			 	</b:bean>
+		</b:property>
+	</b:bean>
+	
+	<b:bean id="casAuthProvider" class="org.springframework.security.cas.authentication.CasAuthenticationProvider"
+		p:serviceProperties-ref="serviceProperties"
+		p:key="casAuthProviderKey">
+		<b:property name="authenticationUserDetailsService">
+			<b:bean
+				class="org.springframework.security.core.userdetails.UserDetailsByNameServiceWrapper">
+				<b:constructor-arg ref="userService" />
+			</b:bean>
+		</b:property>
+		<b:property name="ticketValidator">
+			<b:bean	class="org.jasig.cas.client.validation.Cas20ProxyTicketValidator">
+				<b:constructor-arg value="https://cdrjsyb.aiidc.com.cn:8443/cas" />
+			</b:bean>
+		</b:property>
+		
+	</b:bean>
+</b:beans>
